@@ -21,7 +21,7 @@ const app = express();
 app.disable("x-powered-by");
 
 app.use(cors({
-    origin: process.env.FRONTEND_ORIGIN || "http://localhost:5500",
+    origin: process.env.FRONTEND_ORIGIN || "http://localhost:8158/index.html",
     credentials: true
 }));
 
