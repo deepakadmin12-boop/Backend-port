@@ -1,3 +1,4 @@
+
 "use strict";
 
 const bcrypt = require("bcryptjs");
@@ -14,9 +15,96 @@ function cookieOptions() {
     };
 }
 
+// REGISTER ADMIN
+async function register(req, res, next) {
+    try {
+        const name = String(req.body.name || "").trim();
+        const email = String(req.body.email || "")
+            .trim()
+            .toLowerCase();
+        const inviteCode = String(req.body.inviteCode || "");
+        const password = String(req.body.password || "");
+
+        if (!name || !email || !inviteCode || !password) {
+            return res.status(400).json({
+                message: "All fields are required."
+            });
+        }
+
+        if (name.length > 100) {
+            return res.status(400).json({
+                message: "Name is too long."
+            });
+        }
+
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return res.status(400).json({
+                message: "Enter a valid email address."
+            });
+        }
+
+        if (password.length < 10) {
+            return res.status(400).json({
+                message: "Password must contain at least 10 characters."
+            });
+        }
+
+        const configuredInviteCode =
+            process.env.ADMIN_INVITE_CODE;
+
+        if (!configuredInviteCode) {
+            return res.status(503).json({
+                message: "Admin registration is not configured."
+            });
+        }
+
+        if (inviteCode !== configuredInviteCode) {
+            return res.status(403).json({
+                message: "Invalid invite code."
+            });
+        }
+
+        const existingAdmin = await Admin.findOne({ email });
+
+        if (existingAdmin) {
+            return res.status(409).json({
+                message: "An account with this email already exists."
+            });
+        }
+
+        const passwordHash = await bcrypt.hash(password, 12);
+
+        const admin = await Admin.create({
+            name,
+            email,
+            passwordHash
+        });
+
+        return res.status(201).json({
+            message: "Admin account created successfully.",
+            admin: {
+                id: admin._id,
+                name: admin.name,
+                email: admin.email
+            }
+        });
+    } catch (error) {
+        if (error.code === 11000) {
+            return res.status(409).json({
+                message: "An account with this email already exists."
+            });
+        }
+
+        next(error);
+    }
+}
+
+// LOGIN ADMIN
 async function login(req, res, next) {
     try {
-        const email = String(req.body.email || "").trim().toLowerCase();
+        const email = String(req.body.email || "")
+            .trim()
+            .toLowerCase();
         const password = String(req.body.password || "");
 
         if (!email || !password) {
@@ -25,11 +113,21 @@ async function login(req, res, next) {
             });
         }
 
-        const admin = await Admin.findOne({ email }).select("+passwordHash");
+        const admin = await Admin.findOne({ email })
+            .select("+passwordHash");
 
-        if (!admin || !(await bcrypt.compare(password, admin.passwordHash))) {
+        if (
+            !admin ||
+            !(await bcrypt.compare(password, admin.passwordHash))
+        ) {
             return res.status(401).json({
                 message: "Invalid email or password."
+            });
+        }
+
+        if (!process.env.JWT_SECRET) {
+            return res.status(500).json({
+                message: "Authentication is not configured."
             });
         }
 
@@ -41,7 +139,7 @@ async function login(req, res, next) {
 
         res.cookie("kewadev_token", token, cookieOptions());
 
-        res.json({
+        return res.json({
             message: "Login successful.",
             admin: {
                 id: admin._id,
@@ -54,6 +152,7 @@ async function login(req, res, next) {
     }
 }
 
+// LOGOUT ADMIN
 function logout(req, res) {
     res.clearCookie("kewadev_token", {
         httpOnly: true,
@@ -62,13 +161,18 @@ function logout(req, res) {
         path: "/"
     });
 
-    res.json({ message: "Logged out successfully." });
+    return res.json({
+        message: "Logged out successfully."
+    });
 }
 
+// CHANGE PASSWORD
 async function changePassword(req, res, next) {
     try {
-        const currentPassword = String(req.body.currentPassword || "");
-        const newPassword = String(req.body.newPassword || "");
+        const currentPassword =
+            String(req.body.currentPassword || "");
+        const newPassword =
+            String(req.body.newPassword || "");
 
         if (newPassword.length < 10) {
             return res.status(400).json({
@@ -76,7 +180,8 @@ async function changePassword(req, res, next) {
             });
         }
 
-        const admin = await Admin.findById(req.admin.id).select("+passwordHash");
+        const admin = await Admin.findById(req.admin.id)
+            .select("+passwordHash");
 
         if (!admin) {
             return res.status(404).json({
@@ -98,10 +203,17 @@ async function changePassword(req, res, next) {
         admin.passwordHash = await bcrypt.hash(newPassword, 12);
         await admin.save();
 
-        res.json({ message: "Password changed successfully." });
+        return res.json({
+            message: "Password changed successfully."
+        });
     } catch (error) {
         next(error);
     }
 }
 
-module.exports = { login, logout, changePassword };
+module.exports = {
+    register,
+    login,
+    logout,
+    changePassword
+};
